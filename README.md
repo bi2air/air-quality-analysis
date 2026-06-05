@@ -12,6 +12,7 @@ Jupyter notebooks and Python code for analyzing air quality (fine particles, PM<
   <a href="#2.4">2.4 Conversion wind (U,V) component, RH from temperatures </a>  
 <a href="#3.1">3.1 Data selection</a>  
 <a href="#3.2">3.2 Regression</a>  
+<a href="#3.3">3.3 AI-assisted modeling update (2026)</a>  
 
 <a href="#todo">TODO</a>  
 <a href="#tools">Tool and packages</a>  
@@ -194,6 +195,30 @@ Jupyter notebooks and Python code for analyzing air quality (fine particles, PM<
     <img src="img/screen_forecast.png"/>
   </p>
   
+<a id="3.3"></a>
+### 3.3 AI-assisted modeling update (2026)
+- In 2026, the regression exercise was revisited with AI-assisted model review, clearer metrics, and additional experiments using the existing `data/comb_PM25_wind_Hanoi_2018_v3.csv` dataset.
+- The update reports RMSE, MAE, and R<sup>2</sup>, and compares the original linear/random forest workflow with stronger tree ensembles, timestamp features, lagged PM<sub>2.5</sub>, and a chronological split check.
+- The main modeling distinction is important:
+  - weather-only models keep the original meteorological prediction task
+  - timestamp features add hour/day/season information
+  - lagged PM<sub>2.5</sub> features use recent observed PM<sub>2.5</sub>, so they should be described as short-horizon forecasting or nowcasting rather than pure weather-only prediction
+
+  <p align="center">
+    <img src="img/2026-ai-assisted-modeling.png"/>
+  </p>
+
+- Results from the updated notebook:
+  - mean baseline: RMSE `32.045`, MAE `23.317`, R<sup>2</sup> `-0.001`
+  - linear regression with weather features: RMSE `25.925`, MAE `18.156`, R<sup>2</sup> `0.345`
+  - tuned weather-only histogram gradient boosting: RMSE `19.508`, MAE `12.992`, R<sup>2</sup> `0.629`
+  - weather + timestamp features: RMSE `14.588`, MAE `9.148`, R<sup>2</sup> `0.793`
+  - weather + timestamp + rich PM<sub>2.5</sub> lag features: RMSE `10.821`, MAE `6.801`, R<sup>2</sup> `0.883`
+  - diagnostic rich-lag blend (`0.4 * HGB + 0.3 * RF + 0.3 * ExtraTrees`): RMSE `10.676`, MAE `6.652`, R<sup>2</sup> `0.886`
+  - chronological future-period split with rich lag features: RMSE `14.488`, MAE `8.506`, R<sup>2</sup> `0.814`
+- The lowest random-split RMSE in the updated notebook is about `10.7`, but the more conservative future-period estimate is about `14.5`.
+- Notebook: [`3.3 AI-assisted modeling 2026.ipynb`](3.3%20AI-assisted%20modeling%202026.ipynb)
+  
 <a id='tools'></a>
 ## tools and packages
 - the analysis is carried out on Jupyter Notebook (and later with Jupyter Lab 2.2), Ubuntu 18.04LTS. 
@@ -205,6 +230,7 @@ Jupyter notebooks and Python code for analyzing air quality (fine particles, PM<
 - MetPy (1.0.0)
 - scikit-learn (sklearn - 0.22.1)
 - scipy (1.4.1)
+- 2026 AI-assisted modeling update: Python 3.10, pandas 2.3.1, scikit-learn 1.7.2, Matplotlib 3.10.9
 
 <a id="credit"></a>
 ## Credits:
