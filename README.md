@@ -13,6 +13,7 @@ Jupyter notebooks and Python code for analyzing air quality (fine particles, PM<
 <a href="#3.1">3.1 Data selection</a>  
 <a href="#3.2">3.2 Regression</a>  
 <a href="#3.3">3.3 AI-assisted modeling update (2026)</a>  
+<a href="#3.4">3.4 PM<sub>2.5</sub> forecasting experiments (2026)</a>  
 
 <a href="#todo">TODO</a>  
 <a href="#tools">Tool and packages</a>  
@@ -218,6 +219,96 @@ Jupyter notebooks and Python code for analyzing air quality (fine particles, PM<
   - chronological future-period split with rich lag features: RMSE `14.488`, MAE `8.506`, R<sup>2</sup> `0.814`
 - The lowest random-split RMSE in the updated notebook is about `10.7`, but the more conservative future-period estimate is about `14.5`.
 - Notebook: [`3.3 AI-assisted modeling 2026.ipynb`](3.3%20AI-assisted%20modeling%202026.ipynb)
+
+<a id="3.4"></a>
+### 3.4 PM<sub>2.5</sub> forecasting experiments (2026)
+- The 2026 follow-up also reframed the problem from "predict the exact PM<sub>2.5</sub> value" to more operational forecasting tasks:
+  - severe event detection: whether PM<sub>2.5</sub> will exceed `100 ug/m3`
+  - Vietnam AQI-style health region forecasting using PM<sub>2.5</sub> concentration bins
+  - short-horizon bin forecasting using current PM<sub>2.5</sub>, recent PM<sub>2.5</sub> history, and Dark Sky weather fields as a forecast-weather proxy
+- This is useful because exact PM<sub>2.5</sub> regression is difficult, while region-level forecasts can still support decisions such as "likely acceptable", "likely unhealthy", or "watch for a severe episode".
+
+#### Severe event forecasting
+- Target: `PM2.5(t + horizon) > 100 ug/m3`.
+- Class frequency in the Hanoi 2018 dataset: `500 / 8116` hourly rows, or about `6.2%`.
+- Because this class is rare, plain accuracy is not meaningful; precision, recall, F1, ROC-AUC, and average precision are more useful.
+- Best 1-hour-ahead chronological result with weather, timestamp, and recent PM<sub>2.5</sub> lag features:
+  - model: histogram gradient boosting
+  - precision: `0.52`
+  - recall: `0.69`
+  - F1: `0.59`
+  - ROC-AUC: `0.93`
+  - average precision: `0.55`
+- Longer horizon performance was lower but still showed signal:
+  - 6-hour severe-event forecast: best F1 about `0.42`
+  - 24-hour severe-event forecast: best F1 about `0.39`
+
+#### Vietnam AQI region forecasting
+- The Vietnam VN_AQI PM<sub>2.5</sub> 24-hour concentration ranges were used to create health-region labels:
+  - `Tot`: `0-25 ug/m3`
+  - `Trung binh`: `25-50 ug/m3`
+  - `Kem`: `50-80 ug/m3`
+  - `Xau`: `80-150 ug/m3`
+  - `Rat xau`: `150-250 ug/m3`
+  - `Nguy hai`: `>250 ug/m3`
+- Weather-only region forecasting with MERRA-2 fields is possible, but it is harder than short-horizon forecasting with recent PM<sub>2.5</sub>. In chronological testing:
+  - 6-region 24-hour forecast, best macro F1: `0.373`
+  - 6-region 48-hour forecast, best macro F1: `0.239`
+  - collapsed 3-region 24-hour forecast, best macro F1: `0.389`
+  - collapsed 3-region 48-hour forecast, best macro F1: `0.383`
+- Interpretation: MERRA-2 is useful for backtesting and meteorological context, but production forecasting should replace reanalysis weather with a forecast weather source using the same feature schema.
+
+#### Short-horizon PM<sub>2.5</sub> bin forecasting with current PM<sub>2.5</sub> and Dark Sky
+- For operational forecasting, the strongest setup used:
+  - current PM<sub>2.5</sub>
+  - recent PM<sub>2.5</sub> lag/rolling features
+  - Dark Sky weather fields shifted to the forecast horizon as a proxy for available forecast weather
+  - chronological train/test split
+- PM<sub>2.5</sub> concentration bins:
+  - Good: `<=25 ug/m3`
+  - Acceptable: `25-50 ug/m3`
+  - Unhealthy: `50-150 ug/m3`
+  - Very unhealthy: `150-250 ug/m3`
+  - Hazardous: `>250 ug/m3`
+- Best chronological test results:
+
+| Forecast horizon | Best model | Accuracy | Macro F1 | Weighted F1 |
+|---:|---|---:|---:|---:|
+| 6 hours | Random forest | `0.659` | `0.392` | `0.649` |
+| 12 hours | Random forest | `0.592` | `0.354` | `0.586` |
+| 24 hours | Random forest | `0.538` | `0.323` | `0.532` |
+| 48 hours | ExtraTrees | `0.457` | `0.271` | `0.443` |
+| 72 hours | balanced logistic regression | `0.376` | `0.230` | `0.354` |
+
+- The 6-hour model is the most reliable. Accuracy depends strongly on whether the PM<sub>2.5</sub> condition remains in the same bin:
+  - overall 6-hour accuracy: `65.9%`
+  - currently Good: `72.1%` accuracy
+  - currently Acceptable: `55.1%` accuracy
+  - currently Unhealthy: `70.1%` accuracy
+  - same-bin future hours: `84.0%` model accuracy
+  - transition hours: `36.9%` model accuracy
+- This means the model performs well when air quality is persistent, but transitions between bins remain the hard part.
+
+#### What worked well
+- Adding recent PM<sub>2.5</sub> state greatly improved short-horizon forecasts compared with weather-only models.
+- Tree ensembles, especially random forest, ExtraTrees, and histogram gradient boosting, handled nonlinear weather and persistence patterns better than plain linear models.
+- Forecasting bins or health regions is easier to explain than exact PM<sub>2.5</sub> regression and is closer to operational use.
+- MERRA-2 variables such as pressure, temperature, total precipitable water vapor, height fields, and wind-related variables explain useful background meteorology.
+- Dark Sky-style weather fields are a practical template for production inputs because real forecast APIs can provide similar variables.
+
+#### What needs improvement
+- The model still struggles with transitions, especially Good -> Acceptable/Unhealthy and Acceptable -> Unhealthy.
+- Very unhealthy and hazardous classes are too rare in the 2018 dataset to learn robustly. The dataset has only `88` very unhealthy hourly samples and `3` hazardous samples after binning.
+- Longer horizons, especially 48-72 hours, need stronger forecast-weather features, more years of data, and possibly regional transport features.
+- Current experiments use one Hanoi PM<sub>2.5</sub> monitor and one year of data. A more robust model should include multiple years, nearby stations, emissions/traffic proxies, wind direction transport features, and external fire/dust indicators.
+- For production, MERRA-2 should be used for historical backtesting, while weather forecast data should be used for live predictions.
+- The most useful output should be probabilities for each bin at each horizon, not just one hard class. For example: `+24h Good 12%, Acceptable 31%, Unhealthy 52%, Very unhealthy 5%, Hazardous <1%`.
+
+- Result tables:
+  - `data/adverse_event_model_results_2026_light.csv`
+  - `data/vn_aqi_region_forecast_results_2026.csv`
+  - `data/vn_aqi_region_forecast_results_2026_collapsed.csv`
+  - `data/darksky_pm25_bin_forecast_results_2026.csv`
   
 <a id='tools'></a>
 ## tools and packages
